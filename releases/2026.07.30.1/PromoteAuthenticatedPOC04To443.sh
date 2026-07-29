@@ -33,6 +33,17 @@ wait_http() {
   return 1
 }
 
+stage_read_only_file() {
+  local source="$1"
+  local target="$2"
+  local mode="$3"
+  local temporary="${target}.staging-${STAMP}"
+
+  cp "$source" "$temporary"
+  chmod "$mode" "$temporary"
+  mv -f "$temporary" "$target"
+}
+
 restore_entrypoint() {
   if [[ -f "$CONTROL_UPDATE/before/auth-entrypoint.conf" ]]; then
     cp "$CONTROL_UPDATE/before/auth-entrypoint.conf" \
@@ -129,11 +140,12 @@ for key, value in target.items():
 target_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 PY
 
-cp "$CONTROL_ROOT/secrets/oidc-client-secret" secrets/oidc-client-secret
-cp "$CONTROL_ROOT/certs/tls.crt" certs/tls.crt
-cp "$CONTROL_ROOT/certs/tls.key" certs/tls.key
-chmod 444 secrets/oidc-client-secret certs/tls.crt
-chmod 400 certs/tls.key
+stage_read_only_file \
+  "$CONTROL_ROOT/secrets/oidc-client-secret" \
+  secrets/oidc-client-secret \
+  444
+stage_read_only_file "$CONTROL_ROOT/certs/tls.crt" certs/tls.crt 444
+stage_read_only_file "$CONTROL_ROOT/certs/tls.key" certs/tls.key 400
 
 ./PrepareSsoPOC04G5680A.sh
 ./InstallSsoPOC04G5680A.sh
