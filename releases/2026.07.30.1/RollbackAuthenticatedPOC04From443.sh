@@ -10,6 +10,18 @@ fail() {
   exit 1
 }
 
+replace_control_entrypoint_config() {
+  local source="$1"
+  local target="$CONTROL_ROOT/runtime/auth-entrypoint.conf"
+
+  chmod 600 "$target"
+  if ! cp "$source" "$target"; then
+    chmod 400 "$target"
+    return 1
+  fi
+  chmod 400 "$target"
+}
+
 [[ -f "$POINTER" ]] || fail "No authenticated POC04 cutover record is available"
 update_dir="$(cat "$POINTER")"
 case "$update_dir" in
@@ -23,7 +35,7 @@ before="$update_dir/before/auth-entrypoint.conf"
 
 cp "$CONTROL_ROOT/runtime/auth-entrypoint.conf" \
   "$update_dir/after/auth-entrypoint.conf.before-rollback"
-cp "$before" "$CONTROL_ROOT/runtime/auth-entrypoint.conf"
+replace_control_entrypoint_config "$before"
 docker exec "$CONTROL_ENTRYPOINT" nginx -t
 docker exec "$CONTROL_ENTRYPOINT" nginx -s reload
 

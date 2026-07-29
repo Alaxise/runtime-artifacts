@@ -44,10 +44,22 @@ stage_read_only_file() {
   mv -f "$temporary" "$target"
 }
 
+replace_control_entrypoint_config() {
+  local source="$1"
+  local target="$CONTROL_ROOT/runtime/auth-entrypoint.conf"
+
+  chmod 600 "$target"
+  if ! cp "$source" "$target"; then
+    chmod 400 "$target"
+    return 1
+  fi
+  chmod 400 "$target"
+}
+
 restore_entrypoint() {
   if [[ -f "$CONTROL_UPDATE/before/auth-entrypoint.conf" ]]; then
-    cp "$CONTROL_UPDATE/before/auth-entrypoint.conf" \
-      "$CONTROL_ROOT/runtime/auth-entrypoint.conf"
+    replace_control_entrypoint_config \
+      "$CONTROL_UPDATE/before/auth-entrypoint.conf"
     docker exec "$CONTROL_ENTRYPOINT" nginx -t >/dev/null
     docker exec "$CONTROL_ENTRYPOINT" nginx -s reload >/dev/null
   fi
@@ -213,8 +225,8 @@ EOF
 chmod 600 "$CONTROL_UPDATE/after/auth-entrypoint.conf.candidate"
 
 trap restore_entrypoint ERR INT TERM
-cp "$CONTROL_UPDATE/after/auth-entrypoint.conf.candidate" \
-  "$CONTROL_ROOT/runtime/auth-entrypoint.conf"
+replace_control_entrypoint_config \
+  "$CONTROL_UPDATE/after/auth-entrypoint.conf.candidate"
 docker exec "$CONTROL_ENTRYPOINT" nginx -t
 docker exec "$CONTROL_ENTRYPOINT" nginx -s reload
 
