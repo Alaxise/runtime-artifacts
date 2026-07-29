@@ -157,7 +157,9 @@ docker exec "$CONTROL_UI" python -c \
 mkdir -p "$TARGET_EVIDENCE/candidate-ui-before-transfer"
 find data/ui -mindepth 1 -maxdepth 1 -exec \
   mv -t "$TARGET_EVIDENCE/candidate-ui-before-transfer" -- {} +
-cp "$CONTROL_ROOT/data/ui/hku_ui.poc04-transfer.sqlite3" data/ui/hku_ui.sqlite3
+docker cp \
+  "$CONTROL_UI:/data/hku_ui.poc04-transfer.sqlite3" \
+  data/ui/hku_ui.sqlite3
 chmod 600 data/ui/hku_ui.sqlite3
 if command -v setfacl >/dev/null 2>&1; then
   setfacl -m u:1000:rw- data/ui/hku_ui.sqlite3
