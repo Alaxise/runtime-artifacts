@@ -138,6 +138,13 @@ for key in required:
 for key in ("DEEPSEEK_BASE_URL",):
     if source.get(key):
         target[key] = source[key]
+target["NO_SSO_CONTROL_URLS"] = (
+    "http://10.64.142.35:18380/healthz,"
+    "http://10.64.142.35:20380/healthz,"
+    "http://127.0.0.1:18890/health,"
+    "https://127.0.0.1:443/__health"
+)
+target["NO_SSO_CONTROL_PORTS"] = "443,18380,20380,18890"
 
 seen = set()
 lines = []

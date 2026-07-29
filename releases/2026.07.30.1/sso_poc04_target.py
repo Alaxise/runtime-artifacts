@@ -105,9 +105,9 @@ EXACT_CONTRACT = {
         "http://10.64.142.35:18380/healthz,"
         "http://10.64.142.35:20380/healthz,"
         "http://127.0.0.1:18890/health,"
-        "https://127.0.0.1:19380/__health"
+        "https://127.0.0.1:443/__health"
     ),
-    "NO_SSO_CONTROL_PORTS": "443,18380,19380,20380,18890",
+    "NO_SSO_CONTROL_PORTS": "443,18380,20380,18890",
 }
 IMAGE_KEYS = tuple(dict.fromkeys((*IMAGE_OWNERS.values(), "NO_SSO_VECTOR_SEED_IMAGE")))
 SECRET_ENV_KEYS = (
@@ -282,7 +282,7 @@ def health(url: str) -> dict[str, Any]:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
-    if url == "https://127.0.0.1:19380/__health":
+    if url == "https://127.0.0.1:443/__health":
         request = urllib.request.Request(
             url,
             headers={"Host": "curr-planner.hku.hk"},
