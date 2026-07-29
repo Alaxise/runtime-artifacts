@@ -245,14 +245,13 @@ login_status="$(
 [[ "$(docker inspect -f '{{.Id}}' "$CONTROL_ENTRYPOINT")" == "$control_entrypoint_id" ]] \
   || fail "The existing 443 entrypoint container identity changed"
 
-for check in \
-  "18380 http://127.0.0.1:18380/healthz" \
-  "20380 http://127.0.0.1:20380/healthz" \
-  "18890 http://127.0.0.1:18890/health"; do
-  label="${check%% *}"
-  url="${check#* }"
-  wait_http "$url" || fail "Protected control failed after cutover: $label"
-done
+wait_http "http://127.0.0.1:18380/healthz" \
+  || fail "Protected control failed after cutover: 18380"
+wait_http "http://127.0.0.1:20380/healthz" \
+  -H "Host: planner.its.hku.hk" \
+  || fail "Protected control failed after cutover: 20380"
+wait_http "http://127.0.0.1:18890/health" \
+  || fail "Protected control failed after cutover: 18890"
 
 docker ps -a --no-trunc \
   --format '{{.ID}}|{{.Image}}|{{.Names}}|{{.Status}}|{{.Ports}}|{{.Label "com.docker.compose.project"}}' \
