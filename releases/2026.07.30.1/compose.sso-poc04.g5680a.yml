@@ -1,0 +1,361 @@
+version: "2.4"
+
+services:
+  entrypoint:
+    image: "${AUTH_PROXY_IMAGE}"
+    container_name: hku-sso-v4-entrypoint
+    restart: unless-stopped
+    user: "0:0"
+    network_mode: host
+    depends_on:
+      auth-gateway:
+        condition: service_started
+      web-ui:
+        condition: service_healthy
+    volumes:
+      - ./runtime/auth-entrypoint.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./entrypoint/security-headers.conf:/etc/nginx/security-headers.conf:ro
+      - ./entrypoint/provider.none.conf:/etc/nginx/provider-routes.conf:ro
+      - ./certs/tls.crt:/run/tls/tls.crt:ro
+      - ./certs/tls.key:/run/tls/tls.key:ro
+    tmpfs:
+      - /var/cache/nginx:mode=1777
+      - /var/run:mode=1777
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q --no-check-certificate --header='Host: curr-planner.hku.hk' -O- https://127.0.0.1:${AUTH_ENTRYPOINT_PORT}/__health >/dev/null",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  auth-gateway:
+    image: "${AUTH_GATEWAY_IMAGE}"
+    container_name: hku-sso-v4-gateway
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - --config=/etc/auth-gateway/config.cfg
+      - --alpha-config=/etc/auth-gateway/alpha.yaml
+    depends_on:
+      session-store:
+        condition: service_healthy
+    volumes:
+      - ./runtime/auth-gateway.cfg:/etc/auth-gateway/config.cfg:ro
+      - ./runtime/auth-gateway-alpha.yaml:/etc/auth-gateway/alpha.yaml:ro
+      - ./secrets/oidc-client-secret:/run/secrets/oidc-client-secret:ro
+      - ./secrets/cookie-secret:/run/secrets/cookie-secret:ro
+    tmpfs:
+      - /tmp:mode=1777
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  session-store:
+    image: "${AUTH_SESSION_IMAGE}"
+    container_name: hku-sso-v4-session
+    restart: unless-stopped
+    network_mode: host
+    user: "999:1000"
+    command: ["redis-server", "/etc/redis/session-store.conf"]
+    volumes:
+      - "${NO_SSO_DATA_ROOT}/session:/data"
+      - ./runtime/session-store.conf:/etc/redis/session-store.conf:ro
+      - ./secrets/session-password:/run/secrets/session-password:ro
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "REDISCLI_AUTH=$$(cat /run/secrets/session-password) redis-cli --no-auth-warning -h 127.0.0.1 -p ${AUTH_SESSION_HOST_PORT} ping | grep -qx PONG",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  web-ui:
+    image: "${NO_SSO_UI_IMAGE}"
+    container_name: hku-sso-v4-ui
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      agent-runtime:
+        condition: service_healthy
+    environment:
+      HKU_UI_HOST: 127.0.0.1
+      HKU_UI_PORT: "${AUTH_UI_HOST_PORT}"
+      HKU_UI_PUBLIC_URL: "${AUTH_PUBLIC_URL}"
+      HKU_UI_DATA_DIR: /data
+      HKU_UI_DB_PATH: /data/hku_ui.sqlite3
+      HKU_UI_MODEL: "${AUTH_AGENT_MODEL}"
+      HKU_GATEWAY_BASE_URL: "http://127.0.0.1:${NO_SSO_AGENT_HOST_PORT}/v1"
+      HKU_GATEWAY_API_KEY: "${AUTH_AGENT_API_KEY}"
+      HKU_UI_BACKEND_STREAMING: "1"
+      HKU_UI_AUTH_MODE: trusted_headers
+      HKU_UI_TRUSTED_PROXY_CIDRS: "127.0.0.1/32"
+      HKU_UI_TRUSTED_PROXY_SECRET_FILE: /run/secrets/ui-proxy-secret
+      HKU_UI_ANONYMOUS_SESSION_SECRET_FILE: ""
+      HKU_UI_ALLOWED_EMAIL_DOMAINS: "${AUTH_ALLOWED_EMAIL_DOMAINS}"
+      HKU_UI_ALLOWED_ACCOUNT_TYPES: "${AUTH_ALLOWED_ACCOUNT_TYPES}"
+      HKU_UI_SQLITE_BUSY_TIMEOUT_MS: "${NO_SSO_UI_SQLITE_BUSY_TIMEOUT_MS}"
+      HKU_UI_MAX_ACTIVE_STREAMS: "${NO_SSO_UI_MAX_ACTIVE_STREAMS}"
+      HKU_UI_MAX_ACTIVE_STREAMS_PER_PRINCIPAL: "${NO_SSO_UI_MAX_ACTIVE_STREAMS_PER_PRINCIPAL}"
+      HKU_UI_MAX_ACTIVE_STREAMS_PER_SESSION: "${NO_SSO_UI_MAX_ACTIVE_STREAMS_PER_SESSION}"
+    volumes:
+      - "${NO_SSO_DATA_ROOT}/ui:/data"
+      - ./secrets/ui-proxy-secret:/run/secrets/ui-proxy-secret:ro
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${AUTH_UI_HOST_PORT}/healthz', timeout=3).read()",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+  agent-runtime:
+    image: "${NO_SSO_AGENT_IMAGE}"
+    container_name: hku-sso-v4-agent
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      rag-api:
+        condition: service_healthy
+    environment:
+      DEEPSEEK_BASE_URL: "${DEEPSEEK_BASE_URL}"
+      DEEPSEEK_MODEL: "${DEEPSEEK_MODEL}"
+      DEEPSEEK_JUDGE_MODEL: "${DEEPSEEK_JUDGE_MODEL}"
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY}"
+      RAG_API_KEY: "${RAG_API_KEY}"
+      RAG_BASE_URL: "http://127.0.0.1:${NO_SSO_RAG_HOST_PORT}"
+      RAG_TOOL_URL: "http://127.0.0.1:${NO_SSO_RAG_HOST_PORT}"
+      HKU_COURSE_SEARCH_BASE_URL: "http://127.0.0.1:${NO_SSO_RAG_HOST_PORT}"
+      HKU_COURSE_SEARCH_COLLECTION: "${NO_SSO_COLLECTION}"
+      HKU_COURSE_SEARCH_LATEST_ACADEMIC_YEAR: "2026-2027"
+      HKU_COURSE_SEARCH_MAX_HIT_CHARS: "4000"
+      HKU_COURSE_SEARCH_TIMEOUT_SECONDS: "30"
+      HKU_COURSE_SEARCH_TRACE: "false"
+      HKU_COURSE_SEARCH_QUALIFIED_ROUTING: "true"
+      HKU_COURSE_SEARCH_ANSWER_HINTS: "false"
+      HKU_AGENT_API_HOST: 127.0.0.1
+      HKU_AGENT_API_PORT: "${NO_SSO_AGENT_HOST_PORT}"
+      HKU_AGENT_API_KEY: "${AUTH_AGENT_API_KEY}"
+      HKU_AGENT_API_MODEL: "${AUTH_AGENT_MODEL}"
+      HKU_AGENT_MODEL_MAX_TOKENS: "4096"
+      HKU_AGENT_MAX_ITERATIONS: "6"
+      HKU_AGENT_CONTEXT_FILE_MAX_CHARS: "32768"
+      HKU_AGENT_STATELESS_CHAT_COMPLETIONS: "true"
+      HKU_AGENT_PROFILE: hku-chatbot-no-sso-rag-v2
+      HKU_AGENT_RESET_PROFILE: "true"
+      HKU_AGENT_DASHBOARD_ENABLED: "false"
+      HKU_AGENT_SKIP_NODE_BOOTSTRAP: "1"
+      HKU_GROUNDED_ANSWER_GATE_ENABLED: "true"
+      HKU_GROUNDED_JUDGE_TIMEOUT_SECONDS: "120"
+      HKU_GROUNDED_JUDGE_MAX_TOKENS: "8192"
+      HKU_GROUNDED_DRAFT_REPAIR_ENABLED: "true"
+      HKU_GROUNDED_REPAIR_ENABLED: "true"
+      HKU_GROUNDED_REPAIR_TIMEOUT_SECONDS: "120"
+      HKU_GROUNDED_REPAIR_MAX_TOKENS: "8192"
+      GATEWAY_ALLOW_ALL_USERS: "true"
+      LOG_LEVEL: "ERROR"
+      HKU_AGENT_LOG_LEVEL: "ERROR"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://127.0.0.1:${NO_SSO_AGENT_HOST_PORT}/health >/dev/null",
+        ]
+      interval: 20s
+      timeout: 8s
+      retries: 12
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+  rag-api:
+    image: "${NO_SSO_RAG_IMAGE}"
+    container_name: hku-sso-v4-search
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      vector-engine:
+        condition: service_started
+    environment:
+      HKU_RAG_HOST: 127.0.0.1
+      HKU_RAG_PORT: "${NO_SSO_RAG_HOST_PORT}"
+      MILVUS_HOST: "${NO_SSO_VECTOR_ENGINE_ADDRESS}"
+      MILVUS_PORT: "19530"
+      MILVUS_DB_NAME: default
+      MILVUS_COLLECTION: "${NO_SSO_COLLECTION}"
+      HKU_DEFAULT_COLLECTION: "${NO_SSO_COLLECTION}"
+      EMBEDDING_BASE_URL: "${NO_SSO_EMBEDDING_BASE_URL}"
+      EMBEDDING_PROVIDER: bge_m3_server
+      EMBEDDING_MODEL: bge-m3
+      EMBEDDING_ENDPOINT_PATH: /embeddings
+      EMBEDDING_RETURN_SPARSE: "true"
+      RERANKER_BASE_URL: "${NO_SSO_RERANKER_BASE_URL}"
+      RERANKER_PROVIDER: auto
+      RERANK_ENABLED: "true"
+      SEARCH_TOP_K: "20"
+      RAG_MAX_CONCURRENCY: "${NO_SSO_RAG_MAX_CONCURRENCY}"
+      RAG_MAX_QUEUE: "${NO_SSO_RAG_MAX_QUEUE}"
+      RAG_QUEUE_TIMEOUT_SECONDS: "${NO_SSO_RAG_QUEUE_TIMEOUT_SECONDS}"
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://127.0.0.1:${NO_SSO_RAG_HOST_PORT}/health >/dev/null",
+        ]
+      interval: 15s
+      timeout: 8s
+      retries: 12
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+  vector-coordinator:
+    image: "${NO_SSO_ETCD_IMAGE}"
+    container_name: hku-sso-v4-coordinator
+    restart: unless-stopped
+    network_mode: bridge
+    command:
+      - etcd
+      - --data-dir=/etcd
+      - --name=coordinator
+      - --advertise-client-urls=http://vector-coordinator:2379
+      - --listen-client-urls=http://0.0.0.0:2379
+    volumes:
+      - "${NO_SSO_DATA_ROOT}/coordinator:/etcd"
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  vector-object:
+    image: "${NO_SSO_MINIO_IMAGE}"
+    container_name: hku-sso-v4-object
+    restart: unless-stopped
+    network_mode: bridge
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: "${NO_SSO_MINIO_ROOT_USER}"
+      MINIO_ROOT_PASSWORD: "${NO_SSO_MINIO_ROOT_PASSWORD}"
+      MINIO_ACCESS_KEY: "${NO_SSO_MINIO_ROOT_USER}"
+      MINIO_SECRET_KEY: "${NO_SSO_MINIO_ROOT_PASSWORD}"
+    volumes:
+      - "${NO_SSO_DATA_ROOT}/object:/data"
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  vector-engine:
+    image: "${NO_SSO_MILVUS_IMAGE}"
+    container_name: hku-sso-v4-vector
+    restart: unless-stopped
+    network_mode: bridge
+    links:
+      - vector-coordinator:vector-coordinator
+      - vector-object:vector-object
+    depends_on:
+      vector-coordinator:
+        condition: service_started
+      vector-object:
+        condition: service_started
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        until curl -fsS http://vector-coordinator:2379/health >/dev/null; do sleep 2; done
+        until curl -fsS http://vector-object:9000/minio/health/live >/dev/null; do sleep 2; done
+        exec milvus run standalone
+    environment:
+      ETCD_ENDPOINTS: vector-coordinator:2379
+      MINIO_ADDRESS: vector-object:9000
+      MINIO_ACCESS_KEY_ID: "${NO_SSO_MINIO_ROOT_USER}"
+      MINIO_SECRET_ACCESS_KEY: "${NO_SSO_MINIO_ROOT_PASSWORD}"
+      MQ_TYPE: woodpecker
+    volumes:
+      - "${NO_SSO_DATA_ROOT}/vector:/var/lib/milvus"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://127.0.0.1:9091/healthz >/dev/null",
+        ]
+      interval: 20s
+      timeout: 8s
+      retries: 12
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
