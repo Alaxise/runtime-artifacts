@@ -1,0 +1,5 @@
+Do not deploy this archive.
+
+It was superseded by hku-no-sso-protected-agent-g5680a-2026.08.14.2 because
+its preflight applied a later full-lane seed-directory naming rule to an
+otherwise unchanged historical POC03 lane.
