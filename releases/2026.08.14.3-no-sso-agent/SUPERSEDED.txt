@@ -1,0 +1,4 @@
+Superseded by hku-no-sso-protected-agent-g5680a-2026.08.14.4.
+
+No target archive was published for this intermediate tag because its packager
+still referenced the previous release identity. Do not deploy this tag.

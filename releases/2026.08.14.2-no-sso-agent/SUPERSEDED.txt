@@ -1,0 +1,5 @@
+Superseded by hku-no-sso-protected-agent-g5680a-2026.08.14.4.
+
+The image and mutation boundary were valid, but the acceptance probe allowed an
+initial transient HTTP 503 to bypass its intended bounded second sample. Do not
+deploy this package.
