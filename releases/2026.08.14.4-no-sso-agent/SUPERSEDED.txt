@@ -1,0 +1,6 @@
+Superseded by hku-no-sso-protected-agent-g5680a-2026.08.14.5.
+
+The protected image and mutation boundary remain valid, but behavioral
+qualification began immediately after container health and repeatedly hit the
+still-stabilizing runtime. The successor adds a bounded deployment-only soak.
+Do not deploy this package.
