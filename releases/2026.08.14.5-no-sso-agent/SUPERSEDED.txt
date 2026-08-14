@@ -1,0 +1,5 @@
+Superseded by hku-no-sso-protected-agent-g5680a-2026.08.14.6.
+
+The protected agent requires the calibrated POC05 search API. Release .5
+attempted to pair it with the legacy POC03 search image, whose incompatible
+course-search contract returned HTTP 404 during live qualification.
