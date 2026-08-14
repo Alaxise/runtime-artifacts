@@ -1,0 +1,8 @@
+Superseded by hku-no-sso-protected-agent-g5680a-2026.08.14.7.
+
+Release .6 assumed DATASET_HKU_GB10_POC_05 already existed in the no-SSO
+lane-owned Milvus. Live qualification proved the collection existed only in
+the separately owned SSO vector store, so the transaction rolled back. The
+successor restores the qualified POC05 backup additively into the no-SSO
+lane-owned vector store before changing search or agent configuration.
+Do not deploy this package.
